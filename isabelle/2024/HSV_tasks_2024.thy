@@ -2,6 +2,7 @@ theory HSV_tasks_2024 imports Main begin
 
 section \<open> Task 1: Extending our circuit synthesiser with NAND gates. \<close>
 
+(* enumerating possible sub-circuit config *)
 text \<open> Datatype for representing simple circuits, extended with NAND gates. \<close>
 datatype "circuit" = 
   NOT "circuit"
@@ -36,21 +37,26 @@ fun intro_nand where
          NAND (intro_nand c1) (intro_nand c2))"
 | "intro_nand (NOT c) = NAND (intro_nand c) TRUE"
 | "intro_nand TRUE = TRUE"
-| "intro_nand FALSE = NAND TRUE FALSE"
+| "intro_nand FALSE = FALSE"
 | "intro_nand (INPUT i) = INPUT i"
 
+text \<open> Changed "FALSE = TRUE" to "FALSE = FALSE" \<close>
 
 text \<open> The intro_nand transformation is sound. Note that there is a 
   (deliberate) bug in the definition above, which you will need to fix 
   before you can prove the theorem below.\<close>
 theorem intro_nand_is_sound: "intro_nand c \<sim> c"
-  oops
+  by (induct c, auto)
 
 text \<open> The only_nands predicate holds if a circuit contains only NAND gates. \<close>
 fun only_nands where
   "only_nands (NAND c1 c2) = (only_nands c1 \<and> only_nands c2)"
 | "only_nands (INPUT _) = True"
+| "only_nands FALSE = True"
+| "only_nands TRUE = True"
 | "only_nands _ = False"
+
+text \<open> Added FALSE and TRUE to above fn, since they are valid termini  \<close>
 
 text \<open> The output of the intro_nand transformation is a circuit that only
   contains NAND gates. Note that there is a (deliberate) bug in the
@@ -58,7 +64,8 @@ text \<open> The output of the intro_nand transformation is a circuit that only
   theorem below. \<close>
 theorem intro_nand_only_produces_nands:
   "only_nands (intro_nand c)"
-  oops
+  by (induct c, auto)
+
 
 section \<open> Task 2: Converting numbers to lists of digits. \<close>
 
@@ -68,16 +75,34 @@ where
   "digits10 n = (if n < 10 then [n] else (n mod 10) # digits10 (n div 10))"
 
 value "digits10 42"
+value "digits10 1231232"
+value "20 div 3 :: nat"
 
 text \<open> Every digit is less than 10 (helper lemma). \<close>
 lemma digits10_all_below_10_helper: 
   "ds = digits10 n \<Longrightarrow> \<forall>d \<in> set ds. d < 10"
-  oops
+proof (induct n arbitrary: ds rule: digits10.induct)
+  case (1 n)
+  then show ?case
+  proof (cases "n < 10")
+    case True
+    then show ?thesis using 1 by auto
+  next
+    case False
+    then have "digits10 n = (if n < 10 then [n] else (n mod 10) # digits10 (n div 10))"
+      by simp
+    moreover have "n mod 10 < 10" by simp
+    ultimately show ?thesis
+      by (metis "1.hyps" "1.prems" False set_ConsD)
+  qed
+qed                                     
 
 text \<open> Every digit is less than 10. \<close>
-corollary 
-  "\<forall>d \<in> set (digits10 n). d < 10" 
-  oops
+corollary digits_10_all_below_10:
+  "\<forall>d \<in> set (digits10 n). d < 10"
+  using digits10_all_below_10_helper
+  by blast
+  
 
 text \<open> Task 3: Converting to and from digit lists. \<close>
 
@@ -92,9 +117,23 @@ value "sum10 [2,4]"
 text \<open> Applying digits10 then sum10 gets you back to the same number. \<close>
 theorem digits10_sum10_inverse: 
   "sum10 (digits10 n) = n"
-  oops
+proof (induct n rule: digits10.induct)
+  case (1 n)
+  then show ?case by simp
+qed
+
+value "5 dvd (10::nat)"
+
+text \<open> Applying sum10 then digits10 doesn't always get back the same number. \<close>
+theorem digits10_not_always_inverse:
+ "\<forall>ds :: nat list. digits10 (sum10 ds) = ds \<Longrightarrow> ds = []" 
+  using neq_Nil_conv by fastforce
+
 
 section \<open> Task 4: A divisibility theorem. \<close>
+
+theorem "\<forall>a b :: nat. (37::nat) dvd (sum10 [b, a, b, a, b, a] :: nat)"
+  by simp
 
 section \<open> Task 5: Verifying a naive SAT solver. \<close>
 
