@@ -102,7 +102,10 @@ corollary digits_10_all_below_10:
   "\<forall>d \<in> set (digits10 n). d < 10"
   using digits10_all_below_10_helper
   by blast
-  
+
+theorem digits10_never_empty:
+  "\<forall>n. digits10 n \<noteq> []" by simp
+
 
 text \<open> Task 3: Converting to and from digit lists. \<close>
 
@@ -126,13 +129,13 @@ value "5 dvd (10::nat)"
 
 text \<open> Applying sum10 then digits10 doesn't always get back the same number. \<close>
 theorem digits10_not_always_inverse:
- "\<forall>ds :: nat list. digits10 (sum10 ds) = ds \<Longrightarrow> ds = []" 
-  using neq_Nil_conv by fastforce
+ "\<forall>ds :: nat list. digits10 (sum10 ds) \<noteq> ds \<Longrightarrow> ds = []"
+  by (metis digits10_sum10_inverse)
 
 
 section \<open> Task 4: A divisibility theorem. \<close>
 
-theorem "\<forall>a b :: nat. (37::nat) dvd (sum10 [b, a, b, a, b, a] :: nat)"
+theorem "\<forall>a b :: nat. 37 dvd (sum10 [b, a, b, a, b, a])" 
   by simp
 
 section \<open> Task 5: Verifying a naive SAT solver. \<close>
@@ -199,14 +202,14 @@ type_synonym symbol = "string"
 text \<open> A literal is either a variable or a negated symbol. \<close>
 type_synonym literal = "symbol * bool"
 
-text \<open> A valuation is a list of symbols and their truth values. \<close>
-type_synonym valuation = "(symbol * bool) list"
-
-text \<open> A clause is a disjunction of literals. \<close>
+text \<open> A clause is a disjunction of literals. Adding two statements with OR (\<or>) \<close>
 type_synonym clause = "literal list"
 
-text \<open> A SAT query is a conjunction of clauses. \<close>
+text \<open> A SAT query is a conjunction of clauses. Adding two statements with AND (\<and>) \<close>
 type_synonym query = "clause list"
+
+text \<open> A valuation is a list of symbols and their truth values. \<close>
+type_synonym valuation = "(symbol * bool) list"
 
 text \<open> Given a valuation, evaluate a clause to its truth value. \<close>
 definition evaluate_clause :: "valuation \<Rightarrow> clause \<Rightarrow> bool"
@@ -233,6 +236,8 @@ definition "\<rho>2 == [(''a'', False), (''b'', True), (''c'', True)]"
 value "evaluate q1 \<rho>1" 
 value "evaluate q1 \<rho>2"
 
+(* MK_VALUATION:  Make full test list for a given circuit *)
+
 text \<open> Construct the list of all possible valuations over the given symbols. \<close>
 fun mk_valuation_list :: "symbol list \<Rightarrow> valuation list"
 where 
@@ -248,6 +253,8 @@ fun symbol_of_literal :: "literal \<Rightarrow> symbol"
 where
   "symbol_of_literal (x, _) = x"
 
+value "symbol_of_literal (''a'', True)"
+
 text \<open> Extract the list of symbols from the given clause. \<close>
 definition symbol_list_clause :: "clause \<Rightarrow> symbol list"
 where 
@@ -260,6 +267,8 @@ where
 
 value "symbol_list q1"
 value "symbol_list q2"
+
+(* END MK_VALUATION *)
 
 text \<open> A naive SAT solver. It works by constructing the list of all
   possible valuations over the symbols that appear in the query, and
@@ -283,16 +292,18 @@ text \<open> If the naive SAT solver returns a valuation, then that
 theorem naive_solve_correct_sat:
   assumes "naive_solve q = Some \<rho>"
   shows "evaluate q \<rho>"
-  oops
+  by (metis assms naive_solve_def until_none_some)
 
 text \<open> If the naive SAT solver returns no valuation, then none of the valuations 
   it tried make the query true. \<close>
 theorem naive_solve_correct_unsat:
   assumes "naive_solve q = None"
   shows "\<forall>\<rho> \<in> set (mk_valuation_list (symbol_list q)). \<not> evaluate q \<rho>" 
-  oops
+  by (metis assms in_set_conv_decomp_first list.pred_inject(2) list_all_append naive_solve_def until_none)
+
 
 section \<open> Task 6: Verifying a simple SAT solver. \<close>
+text \<open> This solver now starts to apply sth reminiscent of the DP method \<close>
 
 text \<open> Update the clause c by fixing the symbol x to have truth-value b. Recall that a clause is
   a disjunction of literals, so the clause is true if any one of its literals is true. So if
@@ -303,10 +314,26 @@ text \<open> Update the clause c by fixing the symbol x to have truth-value b. R
 definition update_clause :: "symbol \<Rightarrow> bool \<Rightarrow> clause \<Rightarrow> clause list"
 where
   "update_clause x b c = (if List.member c (x, b) then [] else [removeAll (x, \<not> b) c])"
+(*
+ if (x, b) in c, remove OR gate else remove all (x, \<not>b)'s from OR gate
 
+(x, b) value paired with literal (x, a) means: 
+  x is set to b
+  if a == b this connection is True (high)
+  if a !=b this connection is False (low)
+
+Effect of this update is seen when using DP3, or propagating empty OR for use in DP4
+DP3: if L is unused, del all OR taking \<not>L
+     if there's a True line into an OR gate (get that by setting L = False), OR is True
+*)
+
+(* True line exists to OR, remove gate using DP3 *)
 value "update_clause ''a'' True [(''a'', True), (''b'', False), (''c'', True)]"
+(* False line exists to OR, keep gate, but that line is removed *)
 value "update_clause ''a'' False [(''a'', True), (''b'', False), (''c'', True)]"
+(* True line exists to OR, remove gate using DP3 *)
 value "update_clause ''a'' True [(''a'', True), (''a'', False)]"
+(* False line exists to OR, remove it, then propagate empty OR *)
 value "update_clause ''a'' True [(''a'', False)]"
 
 text \<open> Update a query by fixing the symbol x to have truth-value b. This is done by
@@ -315,6 +342,11 @@ fun update_query :: "symbol \<Rightarrow> bool \<Rightarrow> query \<Rightarrow>
 where
   "update_query x b [] = []"
 | "update_query x b (c # q) = update_clause x b c @ update_query x b q"
+(* 
+@ operator works like #, except:
+ # does [h] [t1, t2, ...] \<rightarrow> [h, t1, t2, ...] 
+ @ does [h] [t1, t2, ...] \<rightarrow> [[h], [t1, t2, ...]]
+*)
 
 value "update_query ''a'' True q1"
 value "update_query ''a'' False q1"
@@ -341,6 +373,21 @@ text \<open> A simple SAT solver. Given a query, it does a three-way case split.
    appears in the query, and makes two recursive solving attempts: one 
    with that symbol evaluated to true, and one with it evaluated to false.
    If neither recursive attempt succeeds, the query is deemed unsatisfiable. \<close>
+(*  
+if []: AND gate with no inputs \<Rightarrow> satisfiable (DP5)
+if [[], ...]: OR gate with no inputs \<Rightarrow> unsatisfiable (DP4)
+else (DP6):
+
+  x := True:
+    if returns Some (partial sol): add (x, True) to head of that and send it up
+    if returns None:
+      x := False:
+        if returns Some (partial sol): add (x, False) to head of that and send it up
+        else send None up
+
+Final result will either be None if unsatisfiable
+Or will contain a solution that satisfies q, if query is satisfiable
+*)
 function simp_solve :: "query \<Rightarrow> valuation option"
 where
   "simp_solve q = (
@@ -355,8 +402,11 @@ where
          Some \<rho> \<Rightarrow> Some ((x, False) # \<rho>)
        | None \<Rightarrow> None)))"
 by pat_completeness auto
-termination 
-  sorry
+termination
+  sorry (* auto wants to prove sth about "\<and>x. simp_solve_dom x."? *)
+
+(* Need to prove that # of Some's = # of elements in q, worst-case (which is still finite *)
+
 
 value "simp_solve q1"
 value "simp_solve q2"
@@ -368,10 +418,14 @@ definition domain :: "('a * 'b) list \<Rightarrow> 'a set"
 where
   "domain kvs = set (map fst kvs)"
 
-lemma evaluate_update_query: 
-  assumes "x \<notin> domain \<rho>"
+(* x is not in the domain of rho, so it's not a  
+
+NOT PROVEN (technically also doesn't need proving...
+*)
+lemma evaluate_update_query:
+  assumes "x \<notin> domain (\<rho>)"
   shows "evaluate (update_query x b q) \<rho> = evaluate q ((x, b) # \<rho>)"
-  oops
+  using evaluate_clause_def sorry
 
 text \<open> If the simple SAT solver returns a valuation, then that 
   valuation really does make the query true. \<close>
