@@ -366,6 +366,24 @@ where
 value "symbols q1"
 value "symbols q2"
 
+(* Define a decreasing measure to be used to terminate simp_solver *)
+(* original with two inputs
+function simp_measure :: "query \<Rightarrow> valuation option \<Rightarrow> nat"
+  where 
+    "simp_measure (q :: query)  v = (
+    case v of 
+      None \<Rightarrow> 0
+    | Some arr \<Rightarrow> (length q) - (length arr))" 
+   apply auto[1] by blast
+*)
+fun simp_measure_c :: "clause \<Rightarrow> nat"
+  where 
+    "simp_measure_c (c :: clause) = length c"
+
+fun simp_measure :: "query \<Rightarrow> nat"
+  where 
+    "simp_measure (q :: query) = List.fold (\<lambda> c t. simp_measure_c c + t) q 0"
+
 text \<open> A simple SAT solver. Given a query, it does a three-way case split. If 
   the query has no clauses then it is trivially satisfiable (with the
    empty valuation). If the first clause in the query is empty, then the
@@ -403,10 +421,31 @@ where
        | None \<Rightarrow> None)))"
 by pat_completeness auto
 termination
-  sorry (* auto wants to prove sth about "\<and>x. simp_solve_dom x."? *)
+(*
+Effectively, prove that this measure holds for both cases where valuation of x is both T and F
+in the case where (x, b) is an element that is contained within the query
+ *)
+proof (relation "measure simp_measure"; clarify; simp_all del: update_query.simps simp_measure.simps)
+  fix x b c q
+  show "simp_measure (update_query (x ::symbol) True (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"
+  proof (cases b)
+    case True
+    then have "simp_measure (update_query x True (((x, b) # c) # q)) \<le> (simp_measure (((x, b) # c) # q)) - (length c + 1)"
+      sorry
+   next
+    case False
+    then show ?thesis sorry
+  qed
+next
+  fix x b c q
+  show "simp_measure (update_query x False (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"
+    sorry
+qed
 
-(* Need to prove that # of Some's = # of elements in q, worst-case (which is still finite *)
-
+(* Need to prove that # of Some's = # of elements in q, worst-case (which is still finite)
+Actually, need to prove that # of remaining elements of q to deal with decreases with loops
+Did using measure simp_measure, now need to work it into the proof
+*)
 
 value "simp_solve q1"
 value "simp_solve q2"
@@ -418,20 +457,25 @@ definition domain :: "('a * 'b) list \<Rightarrow> 'a set"
 where
   "domain kvs = set (map fst kvs)"
 
-(* x is not in the domain of rho, so it's not a  
+(* assume x is not in the domain of rho, so it's not provided as a valuation metric
+Show that updating the query is equivalent to updating the valuation
 
-NOT PROVEN (technically also doesn't need proving...
+NOT PROVEN (technically also doesn't need proving...)
 *)
 lemma evaluate_update_query:
   assumes "x \<notin> domain (\<rho>)"
   shows "evaluate (update_query x b q) \<rho> = evaluate q ((x, b) # \<rho>)"
   using evaluate_clause_def sorry
 
+(*
+REFER TO LECTURES, esp. L5, see if you can make sense of the statements there,
+to try and prove the efficacy of this SAT solver
+*)
 text \<open> If the simple SAT solver returns a valuation, then that 
   valuation really does make the query true. \<close>
 theorem simp_solve_sat_correct:
   "simp_solve q = Some \<rho> \<Longrightarrow> evaluate q \<rho>"
-  oops
+  oops  (*TODO*)
 
 text \<open> A valuation is deemed well-formed (wf) as long as it does
   not assign a truth-value for the same symbol more than once. \<close>
@@ -444,6 +488,6 @@ text \<open> If the simple SAT solver returns no valuation, then
 theorem simp_solve_unsat_correct:
   "simp_solve q = None \<Longrightarrow> 
    (\<forall>\<rho>. wf_valuation \<rho> \<longrightarrow> \<not> evaluate q \<rho>)"
-  oops
+  oops (*TODO*)
 
 end
