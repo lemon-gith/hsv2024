@@ -367,15 +367,8 @@ value "symbols q1"
 value "symbols q2"
 
 (* Define a decreasing measure to be used to terminate simp_solver *)
-(* original with two inputs
-function simp_measure :: "query \<Rightarrow> valuation option \<Rightarrow> nat"
-  where 
-    "simp_measure (q :: query)  v = (
-    case v of 
-      None \<Rightarrow> 0
-    | Some arr \<Rightarrow> (length q) - (length arr))" 
-   apply auto[1] by blast
-*)
+(* Previous simp_measure definition using List.fold, which seems to be too abstract for Isabelle
+
 fun simp_measure_c :: "clause \<Rightarrow> nat"
   where 
     "simp_measure_c (c :: clause) = length c"
@@ -383,6 +376,12 @@ fun simp_measure_c :: "clause \<Rightarrow> nat"
 fun simp_measure :: "query \<Rightarrow> nat"
   where 
     "simp_measure (q :: query) = List.fold (\<lambda> c t. simp_measure_c c + t) q 0"
+*)
+
+(* Rewrite using more fundamental functions *)
+fun simp_measure
+  where 
+    "simp_measure (q :: query) = sum_list (map length q)"
 
 
 fun in_clause :: "literal \<Rightarrow> clause  \<Rightarrow> bool"
@@ -412,6 +411,68 @@ lemma symbol_in_symbol_query:
   using symbols_def symbol_in_symbol_clause by auto
 
 
+lemma rmall_xnb_c_le_c: "simp_measure [removeAll (x, \<not> b) c] \<le> simp_measure [c]"
+  by simp
+
+lemma rmall_xnb_c_lt_c: "simp_measure [removeAll (x, \<not> b) ((x, \<not>b) # c)] < simp_measure [(x, b) # c]"
+  by (metis (no_types, opaque_lifting) Nat.add_0_right impossible_Cons le_neq_implies_less le_trans length_removeAll_less_eq list.simps(8) list.simps(9) nat_le_linear removeAll.simps(2) simp_measure.simps sum_list.Cons sum_list.Nil)
+
+
+lemma uc_le_c: "simp_measure (update_clause x b c) \<le> simp_measure [c]"
+proof (cases c)
+  case Nil 
+  then show ?thesis using update_clause_def
+    by simp
+next
+  case (Cons a list)
+  then show ?thesis
+  proof (cases "fst a = x")
+    case True
+    then show ?thesis using update_clause_def
+      by auto
+  next
+    case False
+    then show ?thesis using update_clause_def
+      by simp
+  qed
+qed
+
+lemma uc_lt_c_w_xb: "simp_measure (update_clause x bv ((x, b) # c)) < simp_measure [(x, b) # c]"
+proof (cases "bv = b")
+  case True
+  then have "update_clause x bv ((x, b) # c) = []" using update_clause_def
+    by (simp add: member_def)
+  then show ?thesis
+    by simp
+next
+  case False
+  then have "simp_measure (update_clause x bv ((x, b) # c)) < simp_measure [(x, b) # c]" using rmall_xnb_c_lt_c
+    by (smt (verit) add_Suc add_Suc_right le_add2 linorder_not_less list.simps(9) list.size(4) not_less_eq_eq simp_measure.simps sum_list.Cons update_clause_def)
+  then show ?thesis
+    by simp
+qed
+
+
+lemma uq_le_q: "simp_measure (update_query x b q) \<le> simp_measure q"
+proof (induct q arbitrary: b)
+  case Nil
+  then show ?case using update_query.simps
+    by simp
+next
+  case (Cons a q)
+  have distr_sm: "simp_measure [a] + simp_measure q = simp_measure (a # q)" 
+    using simp_measure.simps by simp
+  have "simp_measure (update_query x b [a]) \<le> simp_measure [a]"
+    using uc_le_c by force
+  then have "simp_measure (update_query x b [a]) + simp_measure q \<le> simp_measure [a] + simp_measure q"
+    by auto
+  moreover have "simp_measure ((update_query x b [a]) @ q) \<le> simp_measure (a # q)" 
+    using distr_sm calculation by fastforce
+  ultimately show ?case using update_query.simps distr_sm
+    by (smt (verit, best) append.right_neutral concat_append le_trans length_append length_concat local.Cons nat_add_left_cancel_le simp_measure.simps)
+qed
+
+
 text \<open> A simple SAT solver. Given a query, it does a three-way case split. If 
   the query has no clauses then it is trivially satisfiable (with the
    empty valuation). If the first clause in the query is empty, then the
@@ -419,7 +480,7 @@ text \<open> A simple SAT solver. Given a query, it does a three-way case split.
    appears in the query, and makes two recursive solving attempts: one 
    with that symbol evaluated to true, and one with it evaluated to false.
    If neither recursive attempt succeeds, the query is deemed unsatisfiable. \<close>
-(*  
+(*
 if []: AND gate with no inputs \<Rightarrow> satisfiable (DP5)
 if [[], ...]: OR gate with no inputs \<Rightarrow> unsatisfiable (DP4)
 else (DP6):
@@ -449,65 +510,64 @@ where
        | None \<Rightarrow> None)))"
 by pat_completeness auto
 termination
-(*
-Plan is to show that there are two cases, where bv = b and where bv \<noteq> b, in both cases, 
-because x \<in> (symbols query), we know that update_query will reduce the overall size of the query
- *)
 proof (relation "measure simp_measure"; clarify; simp_all del: update_query.simps simp_measure.simps)
-  fix x b c q bv
-  show "simp_measure (update_query (x :: symbol) (bv :: bool) (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"
-    using symbol_in_symbol_query
-  proof (cases "bv = b")
+  fix x b c q
+  show "simp_measure (update_query (x :: symbol) True (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"
+  proof (cases b)
     case b_case: True
-    then have thesis_split: "simp_measure (update_query x b (((x, b) # c) # q)) = simp_measure (update_query x b [((x, b) # c)]) + simp_measure (update_query x b q)"
-      by (simp add: member_rec(1) update_clause_def)
-    then have uq_eq_uc: "simp_measure (update_query x b [((x, b) # c)]) = simp_measure (update_clause x bv ((x, b) # c))"
+    then have thesis_split: "simp_measure (update_query x b (((x, b) # c) # q)) = simp_measure (update_clause x b ((x, b) # c)) + simp_measure (update_query x b q)"
+      by simp
+    also have "... = simp_measure (update_clause x True ((x, b) # c)) + simp_measure (update_query x b q)"
       by (simp add: b_case)
-    then have uc_lt_c: "simp_measure (update_clause x bv ((x, b) # c)) < simp_measure [((x, b) # c)]"
-      using update_clause_def by (simp add: member_rec(1)) (* have proved breakdown of LHS *)
-    (* TODO: break down RHS, then compare their constituent parts *)
-    then have "simp_measure (((x, b) # c) # q) = simp_measure [((x, b) # c)] + simp_measure q" sorry
-    then have "simp_measure (update_query x bv q) < simp_measure q \<Longrightarrow> x \<in> symbols q"
-      using symbol_in_symbol_query symbol_in_symbol_clause try
-    then have "((update_clause x bv ((x, b) # c)) @ q) = update_query x bv q \<Longrightarrow> x \<notin> (symbols q)"
-      using symbol_in_symbol_query symbol_in_symbol_clause try
-    then have "simp_measure ((update_clause x bv ((x, b) # c)) @ q) < simp_measure (((x, b) # c) # q)"
-
-      using simp_measure.simps simp_measure_c.simps member_def try
-    then have "simp_measure (update_query x bv q) \<le> simp_measure q"
-
-      using simp_measure.simps simp_measure_c.simps member_def try
-    then show ?thesis using update_query.simps
+    also have " simp_measure (update_clause x True ((x, b) # c)) + simp_measure (update_query x b q) < simp_measure [((x, b) # c)] + simp_measure (update_query x b q)" 
+      by (simp add: b_case member_def update_clause_def)
+    also have "... \<le> simp_measure [((x, b) # c)] + simp_measure q " using uq_le_q
+      by simp
+    also have "... = simp_measure (((x, b) # c) # q)"  by simp
+    finally show ?thesis 
+      using b_case by fastforce
   next
-    case False
-    then show ?thesis sorry
-  qed
-
-
-(*    then have "((update_clause x bv ((x, b) # c)) @ q) = update_query x bv q \<Longrightarrow> x \<notin> (symbols q)" *)
-(*    then have "simp_measure ((update_clause x bv ((x, b) # c)) @ q) = simp_measure (update_query x bv (((x, b) # c) # q)) \<Longrightarrow> x \<notin> (symbols q)" *)
-(*    then have "simp_measure [c] = simp_measure_c c" by simp*)
-
-(* TODO: remove this is if no longer needed
-  proof (cases "x \<in> (symbols q)")
-    case True
-    then have "x \<in> (symbols_clause c) \<Longrightarrow> x \<in> (symbols q)" by simp
-    then have "(in_query (x, b) q) \<or> (in_query (x, \<not>b) q)" try
-(*"simp_measure (update_query (x ::symbol) True (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"*)
-   next
-    case False
-    then show ?thesis sorry
+    case b_case: False
+    then have "simp_measure (update_query x True (((x, b) # c) # q)) = simp_measure (update_clause x True ((x, b) # c)) + simp_measure (update_query x True q)"
+      by simp
+    also have "simp_measure (update_clause x True ((x, b) # c)) + simp_measure (update_query x True q) < simp_measure [(x, b) # c] + simp_measure (update_query x True q)" 
+      using uc_lt_c_w_xb by auto
+    also have "... \<le> simp_measure [((x, b) # c)] + simp_measure q " using uq_le_q
+      by simp
+    also have "... = simp_measure (((x, b) # c) # q)"  by simp
+    finally show ?thesis
+      by blast
   qed
 next
   fix x b c q
-  show "simp_measure (update_query x False (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"
-    sorry
-qed*)
+  show "simp_measure (update_query (x :: symbol) False (((x, b) # c) # q)) < simp_measure (((x, b) # c) # q)"
+proof (cases b)
+    case b_case: True
+    then have "simp_measure (update_query x False (((x, b) # c) # q)) = simp_measure (update_clause x False ((x, b) # c)) + simp_measure (update_query x False q)"
+      by simp
+    also have "simp_measure (update_clause x False ((x, b) # c)) + simp_measure (update_query x False q) < simp_measure [(x, b) # c] + simp_measure (update_query x False q)" 
+      using uc_lt_c_w_xb by auto
+    also have "... \<le> simp_measure [((x, b) # c)] + simp_measure q " using uq_le_q
+      by simp
+    also have "... = simp_measure (((x, b) # c) # q)"  by simp
+    finally show ?thesis
+      by blast
+  next
+    case b_case: False
+    then have thesis_split: "simp_measure (update_query x b (((x, b) # c) # q)) = simp_measure (update_clause x b ((x, b) # c)) + simp_measure (update_query x b q)"
+      by simp
+    also have "... = simp_measure (update_clause x False ((x, b) # c)) + simp_measure (update_query x b q)"
+      by (simp add: b_case)
+    also have " simp_measure (update_clause x False ((x, b) # c)) + simp_measure (update_query x b q) < simp_measure [((x, b) # c)] + simp_measure (update_query x b q)" 
+      by (simp add: b_case member_def update_clause_def)
+    also have "... \<le> simp_measure [((x, b) # c)] + simp_measure q " using uq_le_q
+      by simp
+    also have "... = simp_measure (((x, b) # c) # q)"  by simp
+    finally show ?thesis 
+      using b_case by fastforce
+  qed
+qed
 
-(* Need to prove that # of Some's = # of elements in q, worst-case (which is still finite)
-Actually, need to prove that # of remaining elements of q to deal with decreases with loops
-Did using measure simp_measure, now need to work it into the proof
-*)
 
 value "simp_solve q1"
 value "simp_solve q2"
