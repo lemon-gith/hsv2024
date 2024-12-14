@@ -303,13 +303,53 @@ function update_query (x:symbol, b:bool, q:query) : query
     q_new + q'
 }
 
+// // evaluates the given clause under the given valuation
+// predicate evaluate_clause(c:clause, r:valuation) {
+//   exists xb :: (xb in c) && (xb in r.Items)
+// }
+
+// // evaluates the given query under the given valuation
+// predicate evaluate(q:query, r:valuation) {
+//   forall i :: 0 <= i < |q| ==> evaluate_clause(q[i], r)
+// }
+
 // Updating a query under the valuation x:=b is the same as updating 
 // the valuation itself and leaving the query unchanged.
 lemma evaluate_update_query(x:symbol, b:bool, r:valuation, q:query)
 requires x !in r.Keys
 ensures evaluate (update_query (x,b,q), r) == evaluate (q, r[x:=b])
 {
-  // ...?
+  if (q == []) {
+    assert evaluate(update_query(x,b,q), r) == true;
+    assert evaluate(q, r[x:=b]) == true;
+  } else {
+    var q_0 := q[0];
+    var q_tail := q[1..];
+    var updated_q_0 := update_clause(x, b, q_0);
+
+    // Induction Hypothesis: The lemma holds for q_tail
+    evaluate_update_query(x, b, r, q_tail);
+
+    //case 1: updated_q_0 is empty
+    if updated_q_0 == [] {
+      assert evaluate_clause(q_0, r[x:=b]) == true;
+      assert evaluate(update_query(x,b,q_tail), r) == evaluate(q_tail, r[x:=b]);
+      assert evaluate(q, r[x:=b]) == evaluate(q_tail, r[x:=b]);
+    } else {
+      //case 2: updated_q_0 is not empty
+      var reduced_clause := updated_q_0[0];
+      assert |updated_q_0| == 1;
+
+      var lhs := evaluate(update_query(x,b,q), r);
+      var rhs := evaluate(updated_q_0 + q_tail, r);
+
+      assert evaluate(update_query(x, b, q_tail), r) == evaluate(q_tail, r[x := b]);
+      
+    }
+      
+
+
+  }
 }
 
 // A simple SAT solver. Given a query, it does a three-way case split. If
