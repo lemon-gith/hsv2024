@@ -597,7 +597,15 @@ text \<open> If the simple SAT solver returns a valuation, then that
   valuation really does make the query true. \<close>
 theorem simp_solve_sat_correct:
   "simp_solve q = Some \<rho> \<Longrightarrow> evaluate q \<rho>"
-  oops  (*TODO*)
+proof (induct q)
+  case Nil
+  then show ?case
+    using evaluate_def list.pred_inject(1) by blast
+next
+  case (Cons a q)
+  then show ?case sorry
+qed
+
 
 text \<open> A valuation is deemed well-formed (wf) as long as it does
   not assign a truth-value for the same symbol more than once. \<close>
@@ -610,6 +618,14 @@ text \<open> If the simple SAT solver returns no valuation, then
 theorem simp_solve_unsat_correct:
   "simp_solve q = None \<Longrightarrow> 
    (\<forall>\<rho>. wf_valuation \<rho> \<longrightarrow> \<not> evaluate q \<rho>)"
-  oops (*TODO*)
+proof (induct q)
+  case Nil
+  then show ?case
+    by auto
+next
+  case (Cons a q)
+  then show ?case sorry
+qed
+
 
 end
