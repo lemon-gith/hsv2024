@@ -1,0 +1,25 @@
+[tasks]
+prove prv
+cover cvr
+all prv cvr
+
+[options]
+prv:
+mode prove
+depth 12
+expect pass
+cvr:
+mode cover
+depth 12
+expect fail
+--
+
+[engines]
+smtbmc
+
+[script]
+read -formal multiplier.sv
+prep -top multiplier
+
+[files]
+multiplier.sv
