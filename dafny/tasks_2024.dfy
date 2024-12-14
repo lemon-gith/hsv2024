@@ -46,40 +46,72 @@ predicate evaluate(q:query, r:valuation) {
 predicate dupe_free(xs:seq<symbol>) 
 {
   forall i,j :: 0 <= i < j < |xs| ==> xs[i] != xs[j]
+  // holds for all i and j
 }
 
+
 // Part (a): reversing a dupe-free sequence (recursive implementation)
-method rev(xs:seq<symbol>)
-returns (ys:seq<symbol>)
+method rev(xs:seq<symbol>) returns (ys:seq<symbol>)
+
 requires dupe_free(xs)
+ensures |xs| == |ys|
+ensures forall i :: 0 <= i < |xs| ==> xs[i] == ys[|ys| - i - 1]
+ensures forall i :: 0 <= i < |ys| ==> ys[i] == xs[|xs| - i - 1]
 ensures dupe_free(ys)
 {
   if (xs == []) {
     ys := [];
   } else {
-    ys := rev(xs[1..]);
-    ys := ys + [xs[0]];
+    // Reverse the tail of the sequence, then add the head to the end
+    var rest: seq<symbol> := rev(xs[1..]); // Reverse of tail
+    ys := rest + [xs[0]];
+    
   }
 }
 
+
 // Part (b): reversing a dupe-free sequence (iterative implementation)
-method rev2(xs:seq<symbol>)
-returns (ys:seq<symbol>)
+method rev2(xs:seq<symbol>) returns (ys:seq<symbol>)
 requires dupe_free(xs)
 ensures dupe_free(ys)
 {
-  // ...?
+  ys := [];
+
+  var i := |xs| - 1;
+
+  while (i >= 0)
+  invariant -1 <= i < |xs|
+  invariant dupe_free(ys)
+  invariant forall j:: i < j < |xs| ==> xs[j] in ys
+  invariant forall j:: 0 <= j <= i ==> xs[j] !in ys
+  {
+    ys := ys + [xs[i]];
+    i := i - 1;
+  }
 }
+
+
+
 
 // Part (c): concatenating two dupe-free sequences
 lemma dupe_free_concat(xs:seq<symbol>, ys:seq<symbol>)
 requires dupe_free(xs)
 requires dupe_free(ys)
-//requires ...?
+requires forall i:: 0 <= i < |xs| ==> xs[i] !in ys
+requires forall j:: 0 <= j < |ys| ==> ys[j] !in xs
 ensures dupe_free (xs + ys)
 {
   // ...?
 }
+
+// a = [1,2,3,4];  //-> duplicate free
+
+// b = [3,4,5,6] //-> duplicate free also 
+
+// dupe_free_concat(a,b) gives false, despite both a and b being duplicate free
+
+
+
 
 //////////////////////////////////////////
 // TASK 2: Extracting symbols from queries
@@ -87,15 +119,17 @@ ensures dupe_free (xs + ys)
 
 // remove the given set of symbols from a clause
 function remove_symbols_clause(c:clause, xs:set<symbol>) : clause
+ensures |remove_symbols_clause(c, xs)| <= |c|
 ensures symbols_clause(remove_symbols_clause(c, xs)) == symbols_clause(c) - xs
 {
-  if c == [] then [] else
+  if c == [] then [] else 
     var c' := remove_symbols_clause(c[1..], xs);
     if c[0].0 in xs then c' else [c[0]] + c'
 }
 
 // remove the given set of symbols from a query
 function remove_symbols(q:query, xs:set<symbol>) : query
+ensures |remove_symbols(q, xs)| <= |q|
 ensures symbols(remove_symbols(q, xs)) == symbols(q) - xs
 {
   if q == [] then [] else
@@ -104,23 +138,45 @@ ensures symbols(remove_symbols(q, xs)) == symbols(q) - xs
 
 // Part (a): extract the sequence of symbols that appear in a clause
 function symbol_seq_clause(c:clause) : seq<symbol>
+requires |c| >= 0
+decreases |c|
 ensures dupe_free(symbol_seq_clause(c))
 ensures forall x :: x in symbol_seq_clause(c) <==> x in symbols_clause(c)
 {
   if c == [] then [] else
     var x := c[0].0;
     var c' := remove_symbols_clause(c[1..], {x});
+    // assert |c'| <= |c[1..]|;
     [x] + symbol_seq_clause(c')
 }
 
+
+// symbol_seq_clause(c:clause) : seq<symbol> -> extract the sequence of symbols that appear in a clause
+// remove_symbols(q:query, xs:set<symbol>) : query  -> remove the given set of symbols from a query
+// remove_symbols_clause(c:clause, xs:set<symbol>) : clause -> remove the given set of symbols from a clause
+// symbols(q:query) : set<symbol> -> extracts the set of symbols from a given query
+//  symbols_clause(c:clause) : set<symbol> -> extracts the set of symbols from a given clause
+
+// type symbol = int
+// type literal = (symbol,bool)
+// type clause = seq<literal>
+// type query = seq<clause>
+// type valuation = map<symbol,bool>
+
+
 // Part (b): extract the sequence of symbols that appear in a query
 function symbol_seq(q:query) : seq<symbol>
+// requires |q| >= 0
+decreases |q|
 ensures dupe_free(symbol_seq(q))
 ensures forall x :: x in symbol_seq(q) <==> x in symbols(q)
 {
   if q == [] then [] else
     var xs := symbols_clause(q[0]);
     var q' := remove_symbols(q[1..], xs);
+
+    assert forall i, j :: 0 <= i <|symbol_seq_clause(q[0])| && 0 <= j < |symbol_seq(q')| ==> symbol_seq_clause(q[0])[i] in symbol_seq_clause(q[0])+symbol_seq(q') && symbol_seq(q')[j] in symbol_seq_clause(q[0])+symbol_seq(q');
+
     symbol_seq_clause(q[0]) + symbol_seq(q')
 }
 
@@ -128,13 +184,27 @@ ensures forall x :: x in symbol_seq(q) <==> x in symbols(q)
 // TASK 3: Evaluating queries
 /////////////////////////////
 
+// // evaluates the given clause under the given valuation
+// predicate evaluate_clause(c:clause, r:valuation) {
+//   exists xb :: (xb in c) && (xb in r.Items)
+// }
+
+// // evaluates the given query under the given valuation
+// predicate evaluate(q:query, r:valuation) {
+//   forall i :: 0 <= i < |q| ==> evaluate_clause(q[i], r)
+// }
+
 // evaluate the given clause under the given valuation (imperative version)
 method eval_clause (c:clause, r:valuation) 
 returns (result: bool)
 ensures result == evaluate_clause(c,r)
 {
   var i := 0;
-  while (i < |c|) {
+  while (i < |c|) 
+  invariant 0 <= i <= |c|
+  invariant forall j :: 0 <= j < i ==> !(c[j] in r.Items)
+  {
+    
     if (c[i] in r.Items) {
       return true;
     }
@@ -148,8 +218,12 @@ method eval(q:query, r:valuation)
 returns (result: bool)
 ensures result == evaluate(q,r)
 {
+  
   var i := 0;
-  while (i < |q|) {
+  while (i < |q|) 
+  invariant 0 <= i <= |q|
+  invariant forall j :: 0 <= j < i ==> evaluate_clause(q[j], r)
+  {
     result := eval_clause(q[i], r);
     if (!result) {
       return false;
@@ -192,6 +266,8 @@ ensures sat==false ==> forall r:valuation :: r in mk_valuation_seq(symbol_seq(q)
   sat := false;
   var i := 0;
   while (i < |rs|) 
+  invariant 0 <= i <= |rs|
+  invariant forall j :: 0 <= j < i ==> !evaluate(q, rs[j])
   {
     sat := eval(q, rs[i]);
     if (sat) {
